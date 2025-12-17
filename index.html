@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space MQTT Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Courier New", monospace;
+        background: linear-gradient(
+          135deg,
+          #0a0e27 0%,
+          #1a1f3a 50%,
+          #0f1729 100%
+        );
+        min-height: 100vh;
+        padding: 20px;
+        position: relative;
+        overflow-x: hidden;
+        color: #fff;
+      }
+
+      /* Starfield animation */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: radial-gradient(
+            2px 2px at 20% 30%,
+            white,
+            transparent
+          ),
+          radial-gradient(2px 2px at 60% 70%, white, transparent),
+          radial-gradient(1px 1px at 50% 50%, white, transparent),
+          radial-gradient(1px 1px at 80% 10%, white, transparent),
+          radial-gradient(2px 2px at 90% 60%, white, transparent),
+          radial-gradient(1px 1px at 33% 80%, white, transparent);
+        background-size: 200% 200%;
+        animation: twinkle 8s ease-in-out infinite;
+        opacity: 0.6;
+        z-index: 0;
+      }
+
+      @keyframes twinkle {
+        0%,
+        100% {
+          opacity: 0.4;
+        }
+        50% {
+          opacity: 0.8;
+        }
+      }
+
+      /* Planet decoration */
+      body::after {
+        content: "🪐";
+        position: fixed;
+        font-size: 20rem;
+        opacity: 0.08;
+        bottom: -100px;
+        right: -100px;
+        z-index: 0;
+        animation: float 30s ease-in-out infinite;
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0px) rotate(0deg);
+        }
+        50% {
+          transform: translateY(-30px) rotate(10deg);
+        }
+      }
+
+      .container {
+        max-width: 1500px;
+        margin: 0 auto;
+        position: relative;
+        z-index: 1;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 40px;
+        animation: fadeInDown 1s ease;
+      }
+
+      .header h1 {
+        font-size: 3.5rem;
+        font-weight: 700;
+        background: linear-gradient(
+          135deg,
+          #667eea 0%,
+          #764ba2 50%,
+          #f093fb 100%
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 10px;
+        letter-spacing: 3px;
+        text-shadow: 0 0 30px rgba(102, 126, 234, 0.5);
+        animation: glow 2s ease-in-out infinite;
+      }
+
+      @keyframes glow {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        50% {
+          filter: brightness(1.3);
+        }
+      }
+
+      .header p {
+        font-size: 1.1rem;
+        color: #a5b4fc;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+
+      .status-bar {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 20px;
+        padding: 25px 35px;
+        margin-bottom: 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 20px;
+        box-shadow: 0 0 30px rgba(102, 126, 234, 0.2),
+          inset 0 0 20px rgba(102, 126, 234, 0.1);
+        animation: fadeIn 1s ease 0.2s both;
+      }
+
+      .connection-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #c7d2fe;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .status-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #ef4444;
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+        animation: pulse 2s infinite;
+      }
+
+      .status-dot.connected {
+        background: #10b981;
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.8);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          box-shadow: 0 0 20px currentColor;
+        }
+        50% {
+          transform: scale(1.2);
+          box-shadow: 0 0 30px currentColor;
+        }
+      }
+
+      .btn {
+        padding: 14px 30px;
+        border: 2px solid;
+        border-radius: 12px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: rgba(15, 23, 42, 0.8);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .btn::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transform: translate(-50%, -50%);
+        transition: width 0.6s, height 0.6s;
+      }
+
+      .btn:hover::before {
+        width: 300px;
+        height: 300px;
+      }
+
+      .btn:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0 25px currentColor;
+      }
+
+      .btn-primary {
+        border-color: #667eea;
+        color: #667eea;
+      }
+
+      .btn-danger {
+        border-color: #ef4444;
+        color: #ef4444;
+      }
+
+      .btn-success {
+        border-color: #10b981;
+        color: #10b981;
+      }
+
+      .btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .config-toggle {
+        background: none;
+        border: none;
+        color: #a5b4fc;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 0.95rem;
+        text-decoration: underline;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .config-panel {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 20px;
+        padding: 0;
+        margin-bottom: 30px;
+        max-height: 0;
+        overflow: hidden;
+        transition: all 0.5s ease;
+        box-shadow: 0 0 30px rgba(102, 126, 234, 0.2);
+      }
+
+      .config-panel.active {
+        padding: 35px;
+        max-height: 1000px;
+      }
+
+      .config-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+      }
+
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .input-group label {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #a5b4fc;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .input-group input {
+        padding: 12px 16px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 10px;
+        color: #fff;
+        font-size: 0.95rem;
+        font-family: "Courier New", monospace;
+        transition: all 0.3s;
+      }
+
+      .input-group input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 15px rgba(102, 126, 234, 0.5);
+        background: rgba(15, 23, 42, 0.9);
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 25px;
+        margin-bottom: 30px;
+      }
+
+      .stat-card {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(10px);
+        border: 2px solid;
+        border-radius: 20px;
+        padding: 35px;
+        position: relative;
+        overflow: hidden;
+        transition: all 0.4s ease;
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        animation: fadeInUp 1s ease both;
+      }
+
+      .stat-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--accent-gradient);
+        box-shadow: 0 0 20px var(--accent-color);
+      }
+
+      .stat-card::after {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(
+          45deg,
+          transparent,
+          var(--accent-color-alpha),
+          transparent
+        );
+        animation: scan 4s linear infinite;
+      }
+
+      @keyframes scan {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .stat-card:nth-child(1) {
+        animation-delay: 0.1s;
+      }
+      .stat-card:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .stat-card:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      .stat-card:nth-child(4) {
+        animation-delay: 0.4s;
+      }
+
+      .stat-card.temp {
+        --accent-gradient: linear-gradient(90deg, #ef4444, #f97316);
+        --accent-color: #ef4444;
+        --accent-color-alpha: rgba(239, 68, 68, 0.1);
+        border-color: rgba(239, 68, 68, 0.5);
+      }
+      .stat-card.humidity {
+        --accent-gradient: linear-gradient(90deg, #3b82f6, #06b6d4);
+        --accent-color: #3b82f6;
+        --accent-color-alpha: rgba(59, 130, 246, 0.1);
+        border-color: rgba(59, 130, 246, 0.5);
+      }
+      .stat-card.pressure {
+        --accent-gradient: linear-gradient(90deg, #8b5cf6, #a855f7);
+        --accent-color: #8b5cf6;
+        --accent-color-alpha: rgba(139, 92, 246, 0.1);
+        border-color: rgba(139, 92, 246, 0.5);
+      }
+      .stat-card.altitude {
+        --accent-gradient: linear-gradient(90deg, #10b981, #34d399);
+        --accent-color: #10b981;
+        --accent-color-alpha: rgba(16, 185, 129, 0.1);
+        border-color: rgba(16, 185, 129, 0.5);
+      }
+
+      .stat-card:hover {
+        transform: translateY(-10px) scale(1.02);
+        box-shadow: 0 0 50px var(--accent-color);
+      }
+
+      .stat-content {
+        position: relative;
+        z-index: 1;
+      }
+
+      .stat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 20px;
+      }
+
+      .stat-label {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #a5b4fc;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      .stat-icon {
+        font-size: 3.5rem;
+        opacity: 0.5;
+        filter: drop-shadow(0 0 10px var(--accent-color));
+        animation: float 3s ease-in-out infinite;
+      }
+
+      .stat-value {
+        font-size: 4rem;
+        font-weight: 700;
+        margin: 15px 0;
+        color: #fff;
+        text-shadow: 0 0 20px var(--accent-color);
+        letter-spacing: -2px;
+      }
+
+      .stat-topic {
+        font-size: 0.75rem;
+        color: #6366f1;
+        font-family: "Courier New", monospace;
+        background: rgba(99, 102, 241, 0.2);
+        padding: 6px 10px;
+        border-radius: 8px;
+        display: inline-block;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+
+      .control-panel {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 20px;
+        padding: 35px;
+        margin-bottom: 30px;
+        box-shadow: 0 0 30px rgba(102, 126, 234, 0.2);
+        animation: fadeIn 1s ease 0.4s both;
+      }
+
+      .control-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 25px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #c7d2fe;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      .control-buttons {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+      }
+
+      .chart-container-wrapper {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 20px;
+        padding: 35px;
+        box-shadow: 0 0 30px rgba(102, 126, 234, 0.2);
+        animation: fadeIn 1s ease 0.5s both;
+      }
+
+      .chart-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 25px;
+        color: #c7d2fe;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 400px;
+      }
+
+      .no-data {
+        text-align: center;
+        padding: 80px 20px;
+        color: #6366f1;
+      }
+
+      .no-data-icon {
+        font-size: 5rem;
+        margin-bottom: 15px;
+        opacity: 0.4;
+        animation: float 3s ease-in-out infinite;
+      }
+
+      .alert-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        max-width: 400px;
+      }
+
+      .alert {
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(102, 126, 234, 0.5);
+        color: #c7d2fe;
+        padding: 18px 24px;
+        border-radius: 15px;
+        margin-bottom: 12px;
+        box-shadow: 0 0 30px rgba(102, 126, 234, 0.3);
+        animation: slideIn 0.4s ease;
+        font-weight: 600;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes fadeInDown {
+        from {
+          opacity: 0;
+          transform: translateY(-30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateX(400px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .header h1 {
+          font-size: 2.5rem;
+        }
+
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .status-bar {
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .alert-container {
+          left: 20px;
+          right: 20px;
+          max-width: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="alert-container" id="alertContainer"></div>
+
+    <div class="container">
+      <div class="header">
+        <h1>🚀 SPACE STATION MQTT</h1>
+        <p>Monitoring Sistem Real-Time</p>
+      </div>
+
+      <div class="status-bar">
+        <div class="connection-status">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="connectionText">DISCONNECTED</span>
+        </div>
+        <div>
+          <button class="config-toggle" onclick="toggleConfig()">
+            ⚙️ CONFIG
+          </button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <button
+            class="btn btn-primary"
+            id="connectBtn"
+            onclick="connectMQTT()"
+          >
+            🔌 CONNECT
+          </button>
+          <button
+            class="btn btn-danger"
+            id="disconnectBtn"
+            onclick="disconnectMQTT()"
+            style="display: none"
+          >
+            🔌 DISCONNECT
+          </button>
+          <button class="btn btn-success" onclick="gotoTabel()">
+            📋 DATA TABLE
+          </button>
+        </div>
+      </div>
+
+      <div class="config-panel" id="configPanel">
+        <div class="config-grid">
+          <div class="input-group">
+            <label>🌐 BROKER URL</label>
+            <input type="text" id="brokerUrl" value="localhost" />
+          </div>
+          <div class="input-group">
+            <label>🔌 PORT</label>
+            <input type="text" id="brokerPort" value="1883" />
+          </div>
+          <div class="input-group">
+            <label>👤 USERNAME</label>
+            <input type="text" id="brokerUser" placeholder="123" />
+          </div>
+          <div class="input-group">
+            <label>🔑 PASSWORD</label>
+            <input type="password" id="brokerPass" placeholder="123" />
+          </div>
+          <div class="input-group">
+            <label>🌡️ TEMPERATURE TOPIC</label>
+            <input type="text" id="topicTemp" value="sensor1/temp" />
+          </div>
+          <div class="input-group">
+            <label>💧 HUMIDITY TOPIC</label>
+            <input type="text" id="topicHumidity" value="sensor1/humidity" />
+          </div>
+          <div class="input-group">
+            <label>💡 PRESSURE TOPIC</label>
+            <input type="text" id="topicPressure" value="sensor1/pressure" />
+          </div>
+          <div class="input-group">
+            <label>💡 ALTITUDE TOPIC</label>
+            <input type="text" id="topicAltitude" value="sensor1/altitude" />
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card temp">
+          <div class="stat-content">
+            <div class="stat-header">
+              <div style="width: 100%">
+                <div class="stat-label">Temperature</div>
+                <div class="stat-value" id="tempValue">0°C</div>
+                <div class="stat-topic" id="tempTopic">sensor1/temp</div>
+              </div>
+              <div class="stat-icon">🌡️</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card humidity">
+          <div class="stat-content">
+            <div class="stat-header">
+              <div style="width: 100%">
+                <div class="stat-label">Humidity</div>
+                <div class="stat-value" id="humidityValue">0%</div>
+                <div class="stat-topic" id="humidityTopic">
+                  sensor1/humidity
+                </div>
+              </div>
+              <div class="stat-icon">💧</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card pressure">
+          <div class="stat-content">
+            <div class="stat-header">
+              <div style="width: 100%">
+                <div class="stat-label">Pressure</div>
+                <div class="stat-value" id="pressureValue">0 hPa</div>
+                <div class="stat-topic" id="pressureTopic">
+                  sensor1/pressure
+                </div>
+              </div>
+              <div class="stat-icon">🌀</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card altitude">
+          <div class="stat-content">
+            <div class="stat-header">
+              <div style="width: 100%">
+                <div class="stat-label">Altitude</div>
+                <div class="stat-value" id="altitudeValue">0 m</div>
+                <div class="stat-topic" id="altitudeTopic">
+                  sensor1/altitude
+                </div>
+              </div>
+              <div class="stat-icon">🏔️</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-panel">
+        <div class="control-title">🎛️ CONTROL PANEL</div>
+        <div class="control-buttons">
+          <button
+            class="btn btn-success"
+            id="notifBtn"
+            onclick="toggleNotification()"
+          >
+            🔔 ALERTS ON
+          </button>
+        </div>
+      </div>
+
+      <div class="chart-container-wrapper">
+        <div class="chart-title">📊 TELEMETRY DATA</div>
+        <div id="noDataMessage" class="no-data">
+          <div class="no-data-icon">🛸</div>
+          <p>AWAITING SENSOR DATA...</p>
+          <p style="font-size: 0.9rem; margin-top: 10px">
+            Connect to MQTT broker to begin
+          </p>
+        </div>
+        <div class="chart-container" id="chartContainer" style="display: none">
+          <canvas id="myChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let mqttClient = null;
+      let isConnected = false;
+      let notificationEnabled = true;
+      let chartData = {
+        labels: [],
+        temps: [],
+        humidities: [],
+        pressures: [],
+        altitudes: [],
+      };
+      let myChart = null;
+
+      function toggleConfig() {
+        const panel = document.getElementById("configPanel");
+        panel.classList.toggle("active");
+      }
+
+      function showAlert(message) {
+        const container = document.getElementById("alertContainer");
+        const alert = document.createElement("div");
+        alert.className = "alert";
+        alert.textContent = message;
+        container.appendChild(alert);
+        setTimeout(() => alert.remove(), 5000);
+      }
+
+      function connectMQTT() {
+        const brokerUrl = document.getElementById("brokerUrl").value;
+        const brokerPort = document.getElementById("brokerPort").value;
+        const username = document.getElementById("brokerUser").value;
+        const password = document.getElementById("brokerPass").value;
+        const clientId =
+          "mqtt_dashboard_" + Math.random().toString(16).substr(2, 8);
+
+        showAlert("🔄 CONNECTING TO BROKER...");
+
+        try {
+          mqttClient = new Paho.MQTT.Client(
+            brokerUrl,
+            Number(brokerPort),
+            clientId
+          );
+          mqttClient.onConnectionLost = onConnectionLost;
+          mqttClient.onMessageArrived = onMessageArrived;
+
+          mqttClient.connect({
+            onSuccess: onConnect,
+            onFailure: onFailure,
+            userName: username || undefined,
+            password: password || undefined,
+            useSSL: false,
+          });
+        } catch (error) {
+          showAlert("❌ ERROR: " + error.message);
+        }
+      }
+
+      function onConnect() {
+        isConnected = true;
+        showAlert("✅ CONNECTION ESTABLISHED!");
+
+        document.getElementById("statusDot").classList.add("connected");
+        document.getElementById("connectionText").textContent = "CONNECTED";
+        document.getElementById("connectBtn").style.display = "none";
+        document.getElementById("disconnectBtn").style.display = "inline-flex";
+
+        const topicTemp = document.getElementById("topicTemp").value;
+        const topicHumidity = document.getElementById("topicHumidity").value;
+        const topicPressure = document.getElementById("topicPressure").value;
+        const topicAltitude = document.getElementById("topicAltitude").value;
+
+        mqttClient.subscribe(topicTemp);
+        mqttClient.subscribe(topicHumidity);
+        mqttClient.subscribe(topicPressure);
+        mqttClient.subscribe(topicAltitude);
+
+        showAlert("📥 SUBSCRIBED TO SENSORS");
+      }
+
+      function onFailure(error) {
+        showAlert("❌ CONNECTION FAILED: " + error.errorMessage);
+      }
+
+      function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+          showAlert("⚠️ CONNECTION LOST: " + responseObject.errorMessage);
+          resetConnection();
+        }
+      }
+
+      function onMessageArrived(message) {
+        const topic = message.destinationName;
+        const payload = message.payloadString;
+        const topicTemp = document.getElementById("topicTemp").value;
+        const topicHumidity = document.getElementById("topicHumidity").value;
+        const topicPressure = document.getElementById("topicPressure").value;
+        const topicAltitude = document.getElementById("topicAltitude").value;
+
+        if (topic === topicTemp) {
+          const temp = parseFloat(payload);
+          updateTemperature(temp);
+          addDataPoint(temp, null, null, null);
+        } else if (topic === topicHumidity) {
+          const humidity = parseFloat(payload);
+          updateHumidity(humidity);
+          addDataPoint(null, humidity, null, null);
+        } else if (topic === topicPressure) {
+          const pressure = parseFloat(payload);
+          updatePressure(pressure);
+          addDataPoint(null, null, pressure, null);
+        } else if (topic === topicAltitude) {
+          const altitude = parseFloat(payload);
+          updateAltitude(altitude);
+          addDataPoint(null, null, null, altitude);
+        }
+      }
+
+      function disconnectMQTT() {
+        if (mqttClient && isConnected) {
+          mqttClient.disconnect();
+          resetConnection();
+          showAlert("🔌 DISCONNECTED FROM BROKER");
+        }
+      }
+
+      function resetConnection() {
+        isConnected = false;
+        document.getElementById("statusDot").classList.remove("connected");
+        document.getElementById("connectionText").textContent = "DISCONNECTED";
+        document.getElementById("connectBtn").style.display = "inline-flex";
+        document.getElementById("disconnectBtn").style.display = "none";
+      }
+
+      function updateTemperature(temp) {
+        document.getElementById("tempValue").textContent =
+          temp.toFixed(1) + "°C";
+        if (notificationEnabled && temp > 32) {
+          showAlert("⚠️ HIGH TEMPERATURE: " + temp.toFixed(1) + "°C");
+        }
+      }
+
+      function updateHumidity(humidity) {
+        document.getElementById("humidityValue").textContent =
+          humidity.toFixed(1) + "%";
+        if (notificationEnabled && humidity < 40) {
+          showAlert("⚠️ LOW HUMIDITY: " + humidity.toFixed(1) + "%");
+        }
+      }
+
+      function updatePressure(pressure) {
+        document.getElementById("pressureValue").textContent =
+          pressure.toFixed(1) + " hPa";
+        if (notificationEnabled && pressure < 900) {
+          showAlert("⚠️ LOW PRESSURE: " + pressure.toFixed(1) + " hPa");
+        }
+      }
+
+      function updateAltitude(altitude) {
+        document.getElementById("altitudeValue").textContent =
+          altitude.toFixed(1) + " m";
+        if (notificationEnabled && altitude > 1000) {
+          showAlert("⚠️ HIGH ALTITUDE: " + altitude.toFixed(1) + " m");
+        }
+      }
+
+      function toggleNotification() {
+        notificationEnabled = !notificationEnabled;
+        document.getElementById("notifBtn").textContent = notificationEnabled
+          ? "🔔 ALERTS ON"
+          : "🔕 ALERTS OFF";
+      }
+
+      function gotoTabel() {
+        window.location.href = "tabel.html";
+      }
+
+      function addDataPoint(temp, humidity, pressure, altitude) {
+        const now = new Date();
+        const time = `${String(now.getHours()).padStart(2, "0")}:${String(
+          now.getMinutes()
+        ).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+
+        chartData.labels.push(time);
+
+        // Handle temperature
+        chartData.temps.push(
+          temp !== null
+            ? temp
+            : chartData.temps.length
+            ? chartData.temps[chartData.temps.length - 1]
+            : 0
+        );
+
+        // Handle humidity
+        chartData.humidities.push(
+          humidity !== null
+            ? humidity
+            : chartData.humidities.length
+            ? chartData.humidities[chartData.humidities.length - 1]
+            : 0
+        );
+
+        // Handle pressure
+        chartData.pressures.push(
+          pressure !== null
+            ? pressure
+            : chartData.pressures.length
+            ? chartData.pressures[chartData.pressures.length - 1]
+            : 0
+        );
+
+        // Handle altitude
+        chartData.altitudes.push(
+          altitude !== null
+            ? altitude
+            : chartData.altitudes.length
+            ? chartData.altitudes[chartData.altitudes.length - 1]
+            : 0
+        );
+
+        if (chartData.labels.length > 20) {
+          chartData.labels.shift();
+          chartData.temps.shift();
+          chartData.humidities.shift();
+          chartData.pressures.shift();
+          chartData.altitudes.shift();
+        }
+
+        updateChart();
+      }
+
+      function updateChart() {
+        if (chartData.labels.length === 0) return;
+
+        document.getElementById("noDataMessage").style.display = "none";
+        document.getElementById("chartContainer").style.display = "block";
+
+        if (!myChart) {
+          const ctx = document.getElementById("myChart").getContext("2d");
+          myChart = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: chartData.labels,
+              datasets: [
+                {
+                  label: "Temperature (°C)",
+                  data: chartData.temps,
+                  borderColor: "#ef4444",
+                  backgroundColor: "rgba(239, 68, 68, 0.1)",
+                  tension: 0.4,
+                  borderWidth: 3,
+                  yAxisID: "y",
+                },
+                {
+                  label: "Humidity (%)",
+                  data: chartData.humidities,
+                  borderColor: "#3b82f6",
+                  backgroundColor: "rgba(59, 130, 246, 0.1)",
+                  tension: 0.4,
+                  borderWidth: 3,
+                  yAxisID: "y1",
+                },
+                {
+                  label: "Pressure (hPa)",
+                  data: chartData.pressures,
+                  borderColor: "#8b5cf6",
+                  backgroundColor: "rgba(139, 92, 246, 0.1)",
+                  tension: 0.4,
+                  borderWidth: 3,
+                  yAxisID: "y2",
+                },
+                {
+                  label: "Altitude (m)",
+                  data: chartData.altitudes,
+                  borderColor: "#10b981",
+                  backgroundColor: "rgba(16, 185, 129, 0.1)",
+                  tension: 0.4,
+                  borderWidth: 3,
+                  yAxisID: "y3",
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: "index", intersect: false },
+              scales: {
+                y: {
+                  type: "linear",
+                  display: true,
+                  position: "left",
+                  title: {
+                    display: true,
+                    text: "Temperature (°C)",
+                    color: "#a5b4fc",
+                    font: { size: 14, weight: "bold" },
+                  },
+                  ticks: { color: "#a5b4fc" },
+                  grid: { color: "rgba(102, 126, 234, 0.2)" },
+                },
+                y1: {
+                  type: "linear",
+                  display: true,
+                  position: "right",
+                  title: {
+                    display: true,
+                    text: "Humidity (%)",
+                    color: "#a5b4fc",
+                    font: { size: 14, weight: "bold" },
+                  },
+                  ticks: { color: "#a5b4fc" },
+                  grid: { drawOnChartArea: false },
+                },
+                y2: {
+                  type: "linear",
+                  display: false,
+                },
+                y3: {
+                  type: "linear",
+                  display: false,
+                },
+                x: {
+                  ticks: { color: "#a5b4fc" },
+                  grid: { color: "rgba(102, 126, 234, 0.2)" },
+                },
+              },
+              plugins: {
+                legend: {
+                  labels: {
+                    color: "#a5b4fc",
+                    font: { size: 13, weight: "bold" },
+                  },
+                },
+              },
+            },
+          });
+        } else {
+          myChart.data.labels = chartData.labels;
+          myChart.data.datasets[0].data = chartData.temps;
+          myChart.data.datasets[1].data = chartData.humidities;
+          myChart.data.datasets[2].data = chartData.pressures;
+          myChart.data.datasets[3].data = chartData.altitudes;
+          myChart.update();
+        }
+      }
+
+      // Event listeners for topic changes
+      document.getElementById("topicTemp").addEventListener("input", (e) => {
+        document.getElementById("tempTopic").textContent = e.target.value;
+      });
+
+      document
+        .getElementById("topicHumidity")
+        .addEventListener("input", (e) => {
+          document.getElementById("humidityTopic").textContent = e.target.value;
+        });
+
+      document
+        .getElementById("topicPressure")
+        .addEventListener("input", (e) => {
+          document.getElementById("pressureTopic").textContent = e.target.value;
+        });
+
+      document
+        .getElementById("topicAltitude")
+        .addEventListener("input", (e) => {
+          document.getElementById("altitudeTopic").textContent = e.target.value;
+        });
+    </script>
+  </body>
+</html>
