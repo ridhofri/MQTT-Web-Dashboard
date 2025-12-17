@@ -9,7 +9,7 @@
 ## Project Structure
 
 ```
-project-name/
+web-mqtt-main/
 ├── index.html
 ├── server.js
 ├── service.py
